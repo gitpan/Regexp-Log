@@ -4,7 +4,7 @@ use strict;
 use Carp;
 use vars qw( $VERSION );
 
-$VERSION = 0.01;
+$VERSION = 0.02;
 
 =head1 NAME
 
@@ -179,7 +179,7 @@ sub _regexp {
       if exists ${"${class}::FORMAT"}{ $self->{format} };
 
     my $convert = join '|', reverse sort keys %{"${class}::REGEXP"};
-    $self->{_regexp} =~ s/($convert)/${"${class}::REGEXP"}{$1}/ge;
+    $self->{_regexp} =~ s/($convert)/${"${class}::REGEXP"}{$1}/g;
 
     $self->_postprocess if $self->can('_postprocess');
 }
@@ -206,7 +206,7 @@ sub regexp {
         ( pos $regexp ) = $pos;
         $regexp =~ s{\G\(\?\#=([-\w]+)\)(.*?)\(\?\#\!\1\)}
                     { exists $capture{$1} ? "((?#=$1)$2(?#!$1))"
-                                          : "(?:(?#=$1)$2(?#!$1))" }exc;
+                                          : "(?:(?#=$1)$2(?#!$1))" }ex;
         $pos += 4;    # oh my! a magic constant!
     }
 
@@ -231,6 +231,11 @@ sub regexp {
 =item fields( )
 
 This method return the list of all the fields that can be captured.
+
+For complex subclasses making a lot of modifications in _preprocess() and
+_postprocess(), the result may not be accurate.
+
+The result of fields() is therefore given for information only.
 
 =cut
 

@@ -2,6 +2,7 @@ Changes
 MANIFEST
 Makefile.PL
 README
+TODO
 lib/Regexp/Log.pm
 t/00basic.t
 t/10foo.t
@@ -9,3 +10,4 @@ t/20debug.t
 t/Foo.pm
 t/foo1.log
 t/foo2.log
+META.yml                                 Module meta-data (added by MakeMaker)
