@@ -4,7 +4,142 @@ use strict;
 use Carp;
 use vars qw( $VERSION );
 
-$VERSION = 0.04;
+$VERSION = 0.05;
+
+sub new {
+    my $class = shift;
+    no strict 'refs';
+    my $self = bless {
+        debug       => 0,
+        comments    => 0,
+        anchor_line => 1,
+        modifiers   => '',
+        %{"${class}::DEFAULT"},
+        @_
+    }, $class;
+
+    # some initialisation code
+    if ( my @capture = @{ $self->{capture} } ) {
+        $self->{capture} = [];
+        $self->capture(@capture);
+    }
+
+    return $self;
+}
+
+sub format {
+    my $self = shift;
+    $self->{format} = shift if @_;
+    return $self->{format};
+}
+
+sub capture {
+    my $self = shift;
+
+    # add the new tags to capture
+    for (@_) {
+
+        # special tags
+        if ( $_ eq ':none' ) { $self->{capture} = [] }
+        elsif ( $_ eq ':all' ) {
+            $self->{capture} = [ $self->fields ];
+        }
+
+        # normal tags
+        else { push @{ $self->{capture} }, $_ }
+    }
+
+    my %capture = map { ( $_, 1 ) } @{ $self->{capture} };
+    $self->{capture} = [ keys %capture ] if @_;
+
+    # compute what will be actually captured, in which order
+    $self->_regexp;
+    return grep { $capture{$_} } ( $self->{_regexp} =~ /\(\?\#=([-\w]+)\)/g );
+
+}
+
+# this internal method actually computes the correct regular expression
+sub _regexp {
+    my $self  = shift;
+    my $class = ref $self;
+
+    $self->{_regexp} = $self->{format};
+
+    $self->{_regexp} =~ s/([\\|()\[\]{}^\$*+?.])/\\$1/g;
+    $self->_preprocess if $self->can('_preprocess');
+
+    # accept predefined formats
+    no strict 'refs';
+    $self->{format} = ${"${class}::FORMAT"}{ $self->{format} }
+      if exists ${"${class}::FORMAT"}{ $self->{format} };
+
+    my $convert = join '|', reverse sort keys %{"${class}::REGEXP"};
+    $self->{_regexp} =~ s/($convert)/${"${class}::REGEXP"}{$1}/g;
+
+    $self->_postprocess if $self->can('_postprocess');
+}
+
+sub regexp {
+    my $self   = shift;
+    $self->_regexp;
+    my $regexp = $self->{_regexp};
+
+    my %capture = map { ( $_, 1 ) } @{ $self->{capture} };
+
+    # this is complicated, but handles multiple levels of imbrication
+    my $pos = 0;
+    while ( ( $pos = index( $regexp, "(?#=", $pos ) ) != -1 ) {
+        ( pos $regexp ) = $pos;
+        $regexp =~ s{\G\(\?\#=([-\w]+)\)(.*?)\(\?\#\!\1\)}
+                    { exists $capture{$1} ? "((?#=$1)$2(?#!$1))"
+                                          : "(?:(?#=$1)$2(?#!$1))" }ex;
+        $pos += 4;    # oh my! a magic constant!
+    }
+
+    # for regexp debugging
+    if ( $self->debug ) {
+        $regexp =~ s/\(\?\#\!([-\w]+)\)/(?#!$1)(?{ print STDERR "$1 "})/g;
+        $regexp =~ s/^/(?{ print STDERR "\n"})/;
+    }
+
+    # remove comments
+    $regexp =~ s{\(\?\#[=!][^)]*\)}{}g unless $self->comments;
+
+    # include anchors
+    $regexp = qq{\^$regexp\$} if $self->anchor_line;
+
+    # include modifiers
+    $regexp = join '', '(?', $self->modifiers, ":$regexp)"
+        if length $self->modifiers;
+
+    # compute the regexp
+    if ( $self->debug ) { use re 'eval'; $regexp = qr/$regexp/; }
+    else { $regexp = qr/$regexp/ }
+
+    return $regexp;
+}
+
+*regex = \&regexp;
+
+sub fields {
+    my $self  = shift;
+    my $class = ref $self;
+    no strict 'refs';
+    return map { (/\(\?\#=([-\w]+)\)/g) } values %{"${class}::REGEXP"};
+}
+
+for my $attr (qw( comments modifiers anchor_line debug )) {
+    no strict 'refs';
+    *$attr = sub {
+        my $self = shift;
+        $self->{$attr} = shift if @_;
+        return $self->{$attr};
+    };
+}
+
+1;
+
+__END__
 
 =head1 NAME
 
@@ -64,48 +199,21 @@ to initialise the object.
 
 The default arguments are:
 
- format   - the format of the log line
- capture  - the name of the fields to capture with the regexp
-            (given as an array ref)
- comments - leave the (?#=name) ... (?#!name) comments in the regexp
+ format      - the format of the log line
+ capture     - the name of the fields to capture with the regexp
+               (given as an array ref)
+ comments    - leave the (?#=name) ... (?#!name) comments in the regexp
+ anchor_line - include begin (^) and end ($) anchor in the regexp
+ modifiers   - include the modifiers into regexp
 
 Other arguments (and the corresponding accessors) can be defined in derived
 classes.
-
-=cut
-
-sub new {
-    my $class = shift;
-    no strict 'refs';
-    my $self = bless {
-        debug    => 0,
-        comments => 0,
-        %{"${class}::DEFAULT"},
-        @_
-    }, $class;
-
-    # some initialisation code
-    if ( my @capture = @{ $self->{capture} } ) {
-        $self->{capture} = [];
-        $self->capture(@capture);
-    }
-
-    return $self;
-}
 
 =item format( $formatstring )
 
 This accessor sets or gets the format string used as a template
 to generate the log-matching regexp. This is usually the configuration
 line of the log-generating software.
-
-=cut
-
-sub format {
-    my $self = shift;
-    $self->{format} = shift if @_;
-    return $self->{format};
-}
 
 =item capture( @fields )
 
@@ -136,54 +244,6 @@ in the following example:
 When used to set, this method returns the I<new> list of captured fields,
 in capture order.
 
-=cut
-
-sub capture {
-    my $self = shift;
-
-    # add the new tags to capture
-    for (@_) {
-
-        # special tags
-        if ( $_ eq ':none' ) { $self->{capture} = [] }
-        elsif ( $_ eq ':all' ) {
-            $self->{capture} = [ $self->fields ];
-        }
-
-        # normal tags
-        else { push @{ $self->{capture} }, $_ }
-    }
-
-    my %capture = map { ( $_, 1 ) } @{ $self->{capture} };
-    $self->{capture} = [ keys %capture ] if @_;
-
-    # compute what will be actually captured, in which order
-    $self->_regexp;
-    return grep { $capture{$_} } ( $self->{_regexp} =~ /\(\?\#=([-\w]+)\)/g );
-
-}
-
-# this internal method actually computes the correct regular expression
-sub _regexp {
-    my $self  = shift;
-    my $class = ref $self;
-
-    $self->{_regexp} = $self->{format};
-
-    $self->{_regexp} =~ s/([\\|()\[\]{}^\$*+?.])/\\$1/g;
-    $self->_preprocess if $self->can('_preprocess');
-
-    # accept predefined formats
-    no strict 'refs';
-    $self->{format} = ${"${class}::FORMAT"}{ $self->{format} }
-      if exists ${"${class}::FORMAT"}{ $self->{format} };
-
-    my $convert = join '|', reverse sort keys %{"${class}::REGEXP"};
-    $self->{_regexp} =~ s/($convert)/${"${class}::REGEXP"}{$1}/g;
-
-    $self->_postprocess if $self->can('_postprocess');
-}
-
 =item regexp( )
 
 Return a computed regular expression, computed from the data given to 
@@ -192,43 +252,6 @@ the Regexp::Log object, and ready to be used in a script.
 =item regex( )
 
 regex() is an alias for the regexp() method.
-
-=cut
-
-sub regexp {
-    my $self   = shift;
-    $self->_regexp;
-    my $regexp = $self->{_regexp};
-
-    my %capture = map { ( $_, 1 ) } @{ $self->{capture} };
-
-    # this is complicated, but handles multiple levels of imbrication
-    my $pos = 0;
-    while ( ( $pos = index( $regexp, "(?#=", $pos ) ) != -1 ) {
-        ( pos $regexp ) = $pos;
-        $regexp =~ s{\G\(\?\#=([-\w]+)\)(.*?)\(\?\#\!\1\)}
-                    { exists $capture{$1} ? "((?#=$1)$2(?#!$1))"
-                                          : "(?:(?#=$1)$2(?#!$1))" }ex;
-        $pos += 4;    # oh my! a magic constant!
-    }
-
-    # for regexp debugging
-    if ( $self->debug ) {
-        $regexp =~ s/\(\?\#\!([-\w]+)\)/(?#!$1)(?{ print STDERR "$1 "})/g;
-        $regexp =~ s/^/(?{ print STDERR "\n"})/;
-    }
-
-    # remove comments
-    $regexp =~ s{\(\?\#[=!][^)]*\)}{}g unless $self->comments;
-
-    # compute the regexp
-    if ( $self->debug ) { use re 'eval'; $regexp = qr/^$regexp$/; }
-    else { $regexp = qr/^$regexp$/ }
-
-    return $regexp;
-}
-
-*regex = \&regexp;
 
 =item fields( )
 
@@ -239,28 +262,24 @@ _postprocess(), the result may not be accurate.
 
 The result of fields() is therefore given for information only.
 
-=cut
-
-sub fields {
-    my $self  = shift;
-    my $class = ref $self;
-    no strict 'refs';
-    return map { (/\(\?\#=([-\w]+)\)/g) } values %{"${class}::REGEXP"};
-}
-
 =item comments( $bool )
 
 Accessor for the C<comments> attribute.
 
 Comments are removed by default.
 
-=cut
+=item modifiers( $modifiers )
 
-sub comments {
-    my $self = shift;
-    $self->{comments} = shift if @_;
-    return $self->{comments};
-}
+Sets the modifiers that govern how the pattern behaves (for
+versions of Perl up to 5.9 or so, these are C<imsx>). By
+default no flags are enabled.
+
+=item anchor_line( $bool )
+
+The resulting pattern will be have the C<^> and C<$>
+line boundary assertions at the beginning and end
+of the pattern, respectively, when the value is true. Set
+to 0 to disable.
 
 =item debug( $bool );
 
@@ -273,14 +292,6 @@ and watch all its attempts to match something. Useful but usually I<very>
 verbose.
 
 This is mainly useful when writing a new Regexp::Log subclass.
-
-=cut
-
-sub debug {
-    my $self = shift;
-    $self->{debug} = shift if @_;
-    return $self->{debug};
-}
 
 =back
 
@@ -440,4 +451,3 @@ the same terms as Perl itself.
 
 =cut
 
-1;
