@@ -1,22 +1,21 @@
 ---
 abstract: 'A base class for log files regexp builders'
 author:
-  - "Philippe 'BooK' Bruhat <book@cpan.org>"
-build_requires:
-  ExtUtils::MakeMaker: 0
+  - "Philippe \"BooK\" Bruhat <book@cpan.org>"
 configure_requires:
-  ExtUtils::MakeMaker: 0
-dynamic_config: 1
-generated_by: 'ExtUtils::MakeMaker version 6.58, CPAN::Meta::Converter version 2.110930'
-license: unknown
+  Module::Build: 0.36
+generated_by: 'Module::Build version 0.3607'
+license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
   version: 1.4
 name: Regexp-Log
-no_index:
-  directory:
-    - t
-    - inc
+provides:
+  Regexp::Log:
+    file: lib/Regexp/Log.pm
+    version: 0.06
 requires:
   Test::More: 0
-version: 0.05_01
+resources:
+  license: http://dev.perl.org/licenses/
+version: 0.06

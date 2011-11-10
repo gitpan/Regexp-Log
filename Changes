@@ -1,7 +1,7 @@
 Revision history for Perl extension Regexp::Log
 
-0.05_01 Sat Nov  5 17:00:00 CEST 2011
-        - Fix compatibility with perl 5.13.5 and up.
+0.06 Thu Nov 10 20:44:20 CET 2011
+        - Steffen Mueller fixed tests for compatibility with recent Perls
 
 0.05 Sun Oct  3 18:31:22 CEST 2010
         - new options added by Solli Moreira Honorio:
